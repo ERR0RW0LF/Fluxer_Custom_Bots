@@ -224,7 +224,7 @@ async def clear_channel_helper(channel: fluxer.models.channel.Channel):
 async def update_hak5_product_list(ctx: fluxer.models.message.Message):
     split_message = ctx.content.split()
     print(split_message)
-    if (len(split_message) != 2 and "force" not in split_message) or "help" in split_message or (len(split_message) != 3 and "force" in split_message):
+    if (len(split_message) != 2 and "force" not in split_message and "update" not in split_message) or "help" in split_message or (len(split_message) != 3 and "force" in split_message and "update" in split_message):
         await ctx.send("This command updates the Hak5 product list. Usage: /update_hak5_product_list <url to xml file>")
         return
     
@@ -257,14 +257,14 @@ async def update_hak5_product_list(ctx: fluxer.models.message.Message):
             os.remove("hak5_products.json")
             await ctx.send("Deleted hak5_products.json file.")
 
+
+
     # download the xml file from the url
     import requests
     response = requests.get(url)
     if response.status_code != 200:
         await ctx.send(f"Failed to download the XML file from {url}. Status code: {response.status_code}")
         return
-
-    
     # Example data from Hak5 sitemap.xml file:
     """
     <urlset>
@@ -298,44 +298,6 @@ async def update_hak5_product_list(ctx: fluxer.models.message.Message):
     </image:image>
     </url>
     <url>
-    <loc>https://hak5.org/products/throwing-star-lan-tap</loc>
-    <lastmod>2026-07-07T16:31:24-07:00</lastmod>
-    <changefreq>daily</changefreq>
-    <image:image>
-    <image:loc>
-    https://cdn.shopify.com/s/files/1/0068/2142/products/P1090928.jpg?v=1496210908
-    </image:loc>
-    <image:title>Throwing Star LAN Tap</image:title>
-    <image:caption/>
-    </image:image>
-    </url>
-    <url>
-    <loc>https://hak5.org/products/7dbi-panel-antenna</loc>
-    <lastmod>2026-07-07T16:31:24-07:00</lastmod>
-    <changefreq>daily</changefreq>
-    <image:image>
-    <image:loc>
-    https://cdn.shopify.com/s/files/1/0068/2142/products/ant2.jpg?v=1496215054
-    </image:loc>
-    <image:title>7 dBi Panel Antenna</image:title>
-    <image:caption/>
-    </image:image>
-    </url>
-    <url>
-    <loc>
-    https://hak5.org/products/throwing-star-lan-tap-pro
-    </loc>
-    <lastmod>2026-07-07T16:31:24-07:00</lastmod>
-    <changefreq>daily</changefreq>
-    <image:image>
-    <image:loc>
-    https://cdn.shopify.com/s/files/1/0068/2142/products/lantappro.jpg?v=1496211037
-    </image:loc>
-    <image:title>Throwing Star LAN Tap Pro</image:title>
-    <image:caption/>
-    </image:image>
-    </url>
-    <url>
     <loc>https
     """
 
@@ -351,7 +313,7 @@ async def update_hak5_product_list(ctx: fluxer.models.message.Message):
     # convert the xml file to a list of products with dict for all the product data
     import xml.etree.ElementTree as ET
     root = ET.fromstring(response.content)
-
+    
     # root.tag comes back as "{<namespace-uri>}urlset" - reuse that namespace to
     # query children, since ElementTree won't match bare "url"/"loc" tags otherwise.
     sitemap_ns = root.tag.split("}")[0].strip("{") if root.tag.startswith("{") else ""
@@ -359,9 +321,54 @@ async def update_hak5_product_list(ctx: fluxer.models.message.Message):
 
     print(f"Found {len(root)} products in the XML file.")
     print(f"Root tag: {root.tag}, attributes: {root.attrib}")
+    products = []
+    """ if len(split_message) == 3 and split_message[2] == "update":
+        # force update the product list without clearing the channel or deleting the json file only by updating all products
+        await ctx.send("Force updating the Hak5 product list...")
+        
+        for url in root.findall("sm:url", ns):
+            loc = url.find("sm:loc", ns)
+            loc_text = loc.text if loc is not None else None
+
+            old_product = next((p for p in old_products if p.get("loc") == loc_text), None) if old_products else None
+            
+            product = {}
+            if loc_text is not None:
+                product["loc"] = loc_text
+            lastmod = url.find("sm:lastmod", ns)
+            if lastmod is not None:
+                product["lastmod"] = lastmod.text
+            changefreq = url.find("sm:changefreq", ns)
+            if changefreq is not None:
+                product["changefreq"] = changefreq.text
+            image = url.find("image:image", ns)
+            if image is not None:
+                image_loc = image.find("image:loc", ns)
+                if image_loc is not None:
+                    product["image_loc"] = image_loc.text
+                image_title = image.find("image:title", ns)
+                if image_title is not None:
+                    product["image_title"] = image_title.text
+                image_caption = image.find("image:caption", ns)
+                if image_caption is not None:
+                    product["image_caption"] = image_caption.text
+            
+            # Hak5's sitemap bumps <lastmod> daily for every product regardless of
+            # whether it actually changed (changefreq is "daily"). Only hit the
+            # live product page (which rate-limits us at ~30 req/run - see the
+            # 429/503s in the logs) when the sitemap's own image fields hint that
+            # something really changed; otherwise just carry the old record over.
+            sitemap_fields = ("image_loc", "image_title", "image_caption")
+            sitemap_unchanged = old_product is not None and all(
+                old_product.get(f) == product.get(f) for f in sitemap_fields
+            )
+            
+             """
+    
+
+
 
     # For each product, get the loc, lastmod, changefreq, and image data, also generate a embed message with the product data and send it to the channel and add the id of the embed message to the product data dict, then save the product data to a json file
-    products = []
     changed_products = []
     for url in root.findall("sm:url", ns):
         loc = url.find("sm:loc", ns)
@@ -400,7 +407,9 @@ async def update_hak5_product_list(ctx: fluxer.models.message.Message):
             old_product.get(f) == product.get(f) for f in sitemap_fields
         )
 
-        if sitemap_unchanged:
+
+
+        if sitemap_unchanged and "update" not in split_message:
             print(f"Skipping {loc_text} because it hasn't changed since last time.")
             product["description"] = old_product.get("description")
             product["embed_message_id"] = old_product.get("embed_message_id")
@@ -411,9 +420,8 @@ async def update_hak5_product_list(ctx: fluxer.models.message.Message):
         # get description from the website if the loc is pointing to.
         # example which is contained in the response to https://hak5.org/products/zzyzx
         """
-
-  <meta property="og:description" content="Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed non risus. Suspendisse lectus tortor, dignissim sit amet, adipiscing nec, ultricies sed, dolor. Cras elementum ultrices diam. Maecenas ligula massa, varius a, semper congue, euismod non, mi.  Proin porttitor, orci nec nonummy molestie, enim est eleifend mi, n">
-"""
+        <meta property="og:description" content="Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed non risus. Suspendisse lectus tortor, dignissim sit amet, adipiscing nec, ultricies sed, dolor. Cras elementum ultrices diam. Maecenas ligula massa, varius a, semper congue, euismod non, mi.  Proin porttitor, orci nec nonummy molestie, enim est eleifend mi, n">
+        """
         description = None
         if loc_text:
             try:
@@ -421,6 +429,20 @@ async def update_hak5_product_list(ctx: fluxer.models.message.Message):
                 if response.status_code == 200:
                     from bs4 import BeautifulSoup
                     soup = BeautifulSoup(response.content, "html.parser")
+                    # price: <meta property="product:price:amount" content="5.00">
+  # <meta property="product:price:currency" content="USD">
+                    price_meta = soup.find("meta", property="product:price:amount")
+                    if price_meta and price_meta.get("content"):
+                        product["price"] = price_meta["content"]
+                    else:
+                        print(f"No price span found for {loc_text}, setting to sold out.")
+                        product["price"] = old_product.get("price") if old_product else "Sold Out"
+                    # Sold out status:
+                    sold_out_span = soup.find("span", class_="text")
+                    if sold_out_span and "Sold Out" in sold_out_span.get_text():
+                        product["status"] = "Sold Out"
+                    else:
+                        product["status"] = "In Stock"
                     meta_description = soup.find("meta", property="og:description")
                     if meta_description and meta_description.get("content"):
                         description = meta_description["content"]
@@ -438,7 +460,7 @@ async def update_hak5_product_list(ctx: fluxer.models.message.Message):
             product["description"] = description
 
         embed = fluxer.Embed(
-            title=product.get("image_title", product.get("loc")),
+            title=f"{product.get('image_title', product.get('loc'))}{' - ' + product.get('price') + ' USD' if product.get('price') else ''}{' (' + product.get('status') + ')' if product.get('status') == 'Sold Out' else ''}",
             description=description or product.get("image_caption") or "No description",
             url=product.get("loc"),
         )
