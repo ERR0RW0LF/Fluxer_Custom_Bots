@@ -1,5 +1,7 @@
 /target
 
+__pycache__
+
 .env
 
 hak5_products.json
