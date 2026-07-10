@@ -2,6 +2,7 @@ import fluxer
 from fluxer import Cog
 from fluxer.checks import has_permission
 import logging
+import asyncio
 
 logger = logging.getLogger(__name__)
 
