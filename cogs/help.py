@@ -242,3 +242,6 @@ class Help(Cog):
 
 async def setup(bot: fluxer.Bot):
     await bot.add_cog(Help(bot))
+
+async def teardown(bot):
+    await bot.remove_cog("Help")

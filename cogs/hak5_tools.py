@@ -389,3 +389,6 @@ class Hak5Tools(Cog):
 
 async def setup(bot: fluxer.Bot):
     await bot.add_cog(Hak5Tools(bot))
+
+async def teardown(bot):
+    await bot.remove_cog("Hak5Tools")

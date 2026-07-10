@@ -31,7 +31,15 @@ bot = fluxer.Bot(command_prefix="/", intents=fluxer.Intents.default() | fluxer.I
 presence_cache: dict[int, str] = {}
 
 
-
+@bot.command()
+async def _bot(ctx: fluxer.models.message.Message):
+    content = ctx.content
+    split_message = content.split()
+    if split_message[1] == "reload":
+        # Unload and reload the cogs
+        await unload_extensions()
+        await load_extensions()
+        await ctx.reply("Finished reloading cogs.")
 
 
 
@@ -106,6 +114,11 @@ async def load_extensions():
     for filename in os.listdir("./cogs"):
         if filename.endswith(".py"):
             await bot.load_extension(f"cogs.{filename[:-3]}")
+
+async def unload_extensions():
+    extensions = list(bot.extensions)
+    for extension in extensions:
+        await bot.unload_extension(extension)
 
 @bot.event
 async def on_ready():

@@ -21,3 +21,6 @@ class Ping(Cog):
 
 async def setup(bot: fluxer.Bot):
     await bot.add_cog(Ping(bot))
+
+async def teardown(bot):
+    await bot.remove_cog("Ping")

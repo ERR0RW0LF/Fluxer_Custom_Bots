@@ -268,3 +268,6 @@ class Onboarding(Cog):
 
 async def setup(bot: fluxer.Bot):
     await bot.add_cog(Onboarding(bot))
+
+async def teardown(bot):
+    await bot.remove_cog("Onboarding")
