@@ -1,9 +1,13 @@
+from pprint import pprint
+
 import fluxer
 from fluxer import Cog
 from fluxer.checks import has_permission
 import logging
 import base64
 import requests
+import hashlib
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +129,111 @@ class LinuxLikeTools(Cog):
                 
                 await ctx.reply(f"{message_attachment.filename}: {base64_string}")
             return
+    
+    @Cog.command()
+    async def file_profile(self, ctx: fluxer.models.message.Message):
+        """
+        Description: Tries to find as much information about a file as possible.
+        
+        Usage: /file_profile 
+        
+        Man: Provide a file as attachment to this command.\nOptions:\n-a\t\tuse everything\n--hash\t\tgenerates all possible hashes of this file
+        """
+        
+        content = ctx.content
+        content = content.removeprefix("/file_profile ")
+        split_message = content.split()
+        
+        message_attachments = ctx.attachments
+        if not message_attachments:
+            await ctx.reply("Please provide at least one file.")
+            return
+        
+        embed_messages = {}
+        #logger.log(logging.DEBUG,f"{ctx.content}")
+        hash_messages       = {}
+        ext_messages        = {}
+        header_messages     = {}
+        
+        everything_flag = "-a" in split_message or "--all" in split_message
+        logger.info(f"everything_flag is set to {everything_flag}")
+        
+        for message_attachment in message_attachments:
+            file_content = requests.get(message_attachment.url).content
+            
+            header_message  = f"# File: `{message_attachment.filename}`\n"
+            header_message += f"content_type: {message_attachment.content_type}\n"
+            header_message += f"description: {message_attachment.description}\n"
+            header_message += f"ephemeral: {message_attachment.ephemeral}\n"
+            header_message += f"height: {message_attachment.height}\n"
+            header_message += f"width: {message_attachment.width}\n"
+            header_message += f"size: {message_attachment.size}\n"
+            header_message += f"id: {message_attachment.id}\n"
+            
+            header_messages[message_attachment.id] = header_message
+            
+            
+            
+            # Generate hash info for a file
+            if "--hash" in split_message or everything_flag:
+                hash_message  =  "## Hashes: \n"
+                hash_message += f"### For: `{message_attachment.filename}`\n"
+                hash_message += f"sha1: {hashlib.sha1(file_content).hexdigest()}\n"
+                hash_message += f"sha256: {hashlib.sha256(file_content).hexdigest()}\n"
+                hash_message += f"sha512: {hashlib.sha512(file_content).hexdigest()}\n"
+                hash_message += f"md5: {hashlib.md5(file_content).hexdigest()}\n"
+                hash_message += f"sha3_256: {hashlib.sha3_256(file_content).hexdigest()}\n"
+                hash_message += f"sha3_512: {hashlib.sha3_512(file_content).hexdigest()}\n"
+                hash_messages[message_attachment.id] = hash_message
+            
+            if "--ext" in split_message or everything_flag:
+                ext_message  =  "## Extensions\n"
+                ext_message += f"### For: `{message_attachment.filename}`\n"
+                ext_message += f"predicted: {self.find_filetype(file_content) or ""}\n"
+                ext_message += f"based on filename: {str(os.path.splitext(message_attachment.filename)[-1]).removeprefix('.') if os.path.splitext(message_attachment.filename)[-1].startswith('.') else ""}\n"
+
+                
+                ext_messages[message_attachment.id] = ext_message
+        
+        
+        
+        
+        if hash_messages:
+            for key in hash_messages.keys():
+                if key not in embed_messages.keys():
+                    embed_messages[key] = {"header_message": header_messages[key]}
+                embed_messages[key]["hash_message"] = hash_messages[key]
+
+        if ext_messages:
+            for key in ext_messages.keys():
+                if key not in embed_messages.keys():
+                    embed_messages[key] = {"id":key}
+                embed_messages[key]["ext_message"] = ext_messages[key]
+        
+        
+        print("DEBUG:cogs.linux_like_tools:PPRINT:")
+        pprint(embed_messages)
+        
+        embeds = []
+        
+        for key in embed_messages.keys():
+            message_parts_sorted = embed_messages[key].keys()
+            if "id" in message_parts_sorted:
+                message_parts_sorted.remove("id")
+            embed_message = ""
+            for part in message_parts_sorted:
+                embed_message += embed_messages[key][part] + "\n"
+            
+            embed = fluxer.Embed(
+                title=key,
+                description=embed_message
+            )
+            embeds.append(embed)
+        
+        await ctx.reply(embeds=embeds)
+        
+
+        
 
 async def setup(bot: fluxer.Bot):
     await bot.add_cog(LinuxLikeTools(bot))

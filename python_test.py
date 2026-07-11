@@ -32,6 +32,7 @@ presence_cache: dict[int, str] = {}
 
 
 @bot.command()
+@fluxer.has_permission(fluxer.Permissions.ADMINISTRATOR)
 async def _bot(ctx: fluxer.models.message.Message):
     content = ctx.content
     split_message = content.split()
