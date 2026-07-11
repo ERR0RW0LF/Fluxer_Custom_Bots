@@ -10,7 +10,7 @@ class Hak5Tools(Cog):
     def __init__(self, bot: fluxer.Bot):
         super().__init__(bot)
     
-    @Cog.listener
+    @Cog.listener()
     async def on_raw_reaction_add(self, raw: fluxer.models.reaction.RawReactionActionEvent):
         print(f"[debug] on_raw_reaction_add: {raw}")
         if raw.user_id == self.bot.user.id:
@@ -42,7 +42,7 @@ class Hak5Tools(Cog):
                         await dm.send(f"You have been added to the interested_users list for product {product.get('loc')}. You will be notified when this product is updated.")
                         break
 
-    @Cog.listener
+    @Cog.listener()
     async def on_raw_reaction_remove(self, raw):
         print(f"[debug] on_raw_reaction_remove: {raw}")
         
