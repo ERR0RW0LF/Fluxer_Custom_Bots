@@ -4,6 +4,6 @@ __pycache__
 
 .env
 
-hak5_products.json
+hak5_products_*.json
 
 /operations
