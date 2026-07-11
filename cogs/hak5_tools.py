@@ -2,6 +2,7 @@ import fluxer
 from fluxer import Cog
 from fluxer.checks import has_permission
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -10,15 +11,15 @@ class Hak5Tools(Cog):
         super().__init__(bot)
     
     @Cog.listener
-    async def on_raw_reaction_add(raw):
+    async def on_raw_reaction_add(self, raw: fluxer.models.reaction.RawReactionActionEvent):
         print(f"[debug] on_raw_reaction_add: {raw}")
-        if raw.user_id == bot.user.id:
+        if raw.user_id == self.bot.user.id:
             return
 
         # load hak5_products.json to find the product with the embed message id 
         import json
         try:
-            with open("hak5_products.json", "r") as f:
+            with open(f"hak5_products_{raw.guild_id}.json", "r") as f:
                 products = json.load(f)
         except FileNotFoundError:
             products = []
@@ -32,26 +33,26 @@ class Hak5Tools(Cog):
                     if raw.user_id not in product["interested_users"]:
                         product["interested_users"].append(raw.user_id)
                         products = [p if p.get("loc") != product.get("loc") else product for p in products]
-                        with open("hak5_products.json", "w") as f:
+                        with open(f"hak5_products_{raw.guild_id}.json", "w") as f:
                             json.dump(products, f, indent=4)
                         print(f"[debug] Added user {raw.user_id} to interested_users for product {product.get('loc')}")
                         # dm user that they have been added to the interested_users list for this product
-                        user = await bot.fetch_user(raw.user_id)
+                        user = await self.bot.fetch_user(raw.user_id)
                         dm = await user.create_dm()
                         await dm.send(f"You have been added to the interested_users list for product {product.get('loc')}. You will be notified when this product is updated.")
                         break
 
     @Cog.listener
-    async def on_raw_reaction_remove(raw):
+    async def on_raw_reaction_remove(self, raw):
         print(f"[debug] on_raw_reaction_remove: {raw}")
         
-        if raw.user_id == bot.user.id:
+        if raw.user_id == self.bot.user.id:
             return
         
         # load hak5_products.json to find the product with the embed message id 
         import json
         try:
-            with open("hak5_products.json", "r") as f:
+            with open(f"hak5_products_{raw.guild_id}.json", "r") as f:
                 products = json.load(f)
         except FileNotFoundError:
             products = []
@@ -64,27 +65,27 @@ class Hak5Tools(Cog):
                     if raw.user_id in product.get("interested_users", []):
                         product["interested_users"].remove(raw.user_id)
                         products = [p if p.get("loc") != product.get("loc") else product for p in products]
-                        with open("hak5_products.json", "w") as f:
+                        with open(f"hak5_products_{raw.guild_id}.json", "w") as f:
                             json.dump(products, f, indent=4)
                         print(f"[debug] Removed user {raw.user_id} from interested_users for product {product.get('loc')}")
                         # dm user that they have been removed from the interested_users list for this product
-                        user = await bot.fetch_user(raw.user_id)
+                        user = await self.bot.fetch_user(raw.user_id)
                         dm = await user.create_dm()
                         await dm.send(f"You have been removed from the interested_users list for product {product.get('loc')}. You will no longer be notified when this product is updated.")
                         break
     
-    async def get_channel_by_name(guild: fluxer.models.guild.Guild, name: str) -> fluxer.models.channel.Channel | None:
+    async def get_channel_by_name(self, guild: fluxer.models.guild.Guild, name: str) -> fluxer.models.channel.Channel | None:
         """fluxer has no cache/lookup for guild channels by name, so hit the API directly."""
-        data = await bot._http.get_guild_channels(guild.id)
+        data = await self.bot._http.get_guild_channels(guild.id)
         for channel_data in data:
             if channel_data.get("name") == name:
-                return fluxer.models.channel.Channel.from_data(channel_data, bot._http)
+                return fluxer.models.channel.Channel.from_data(channel_data, self.bot._http)
         return None
 
     
     @Cog.command()
     @fluxer.has_permission(fluxer.Permissions.ADMINISTRATOR)
-    async def update_hak5_product_list(ctx: fluxer.models.message.Message):
+    async def update_hak5_product_list(self, ctx: fluxer.models.message.Message):
         """
         Description: Updates the Hak5 product list from the specified XML URL.
         
@@ -107,7 +108,7 @@ class Hak5Tools(Cog):
             await ctx.send("PRODUCTS_CHANNEL_NAME is not set in .env.")
             return
 
-        products_channel = await get_channel_by_name(ctx.guild, channel_name)
+        products_channel = await self.get_channel_by_name(ctx.guild, channel_name)
         if products_channel is None:
             await ctx.send(f"Could not find a channel named '{channel_name}' in this guild.")
             return
@@ -121,8 +122,8 @@ class Hak5Tools(Cog):
             # including the "Clearing channel..." message itself.
 
             # delete the hak5_products.json file if it exists
-            if os.path.exists("hak5_products.json"):
-                os.remove("hak5_products.json")
+            if os.path.exists(f"hak5_products_{ctx.guild_id}.json"):
+                os.remove(f"hak5_products_{ctx.guild_id}.json")
                 await ctx.send("Deleted hak5_products.json file.")
 
 
@@ -172,7 +173,7 @@ class Hak5Tools(Cog):
         # load the old data from the json file
         import json
         try:
-            with open("hak5_products.json", "r") as f:
+            with open(f"hak5_products_{ctx.guild_id}.json", "r") as f:
                 old_products = json.load(f)
         except FileNotFoundError:
             old_products = []
@@ -372,7 +373,7 @@ class Hak5Tools(Cog):
 
         # save the products to a json file
         import json
-        with open("hak5_products.json", "w") as f:
+        with open(f"hak5_products_{ctx.guild_id}.json", "w") as f:
             json.dump(products, f, indent=4)
 
         summary = f"Updated Hak5 product list: {len(changed_products)} product(s) changed and posted to {products_channel.mention}."
