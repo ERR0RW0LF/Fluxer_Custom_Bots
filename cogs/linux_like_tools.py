@@ -234,7 +234,126 @@ class LinuxLikeTools(Cog):
         await ctx.reply(embeds=embeds)
         
 
+    @Cog.command()
+    async def man(self, ctx: fluxer.models.message.Message):
+        """
+        Description: Displays the man page of a selected command
         
+        Usage: /man <command>
+        
+        Man: This is the man page for man.\nThis should be a new line.
+        """
+        await self.man_page(ctx)
+    
+    
+    async def man_page(self, ctx: fluxer.models.message.Message):
+        # asked for command
+        content = ctx.content
+        content = content.removeprefix("/man").strip()
+        split_message = content.split()
+        if content == "":
+            await ctx.reply("Please provide a command to look up, like this: `/man <command_name>` | `/man /<command_name>`")
+        
+        command_name, cog_name, description, usage, man, examples = await self.get_command_info(split_message[0])
+        pprint((command_name, cog_name, description, usage, man, examples))
+        
+        if (command_name == None) and (cog_name == None) and (description == None) and (usage == None) and (man == None) and (examples == None):
+            await ctx.reply("Sorry but I couldn't find that command. For a list of all supported command please use `/help`.")
+        
+        embed = fluxer.Embed(
+            title=f"Man Page of {command_name}",
+            description=f"# {command_name.upper()}(1)\n## NAME\n{command_name} -- {description.lower()}\n\n{man}"
+        )
+        
+        await ctx.reply(embed=embed)
+    
+    async def get_command_info(self, searched_command_name: str):        
+        
+        all_commands = await self.get_all_commands()
+        
+        #commands_by_cog = {}
+        #for cog_name, command_name, description, usage, man, examples in all_commands:
+        #    commands_by_cog.setdefault(cog_name, []).append((command_name, description, usage, man, examples))
+        #pprint(all_commands)
+        #pprint(commands_by_cog)
+        
+        clean_command = searched_command_name.removeprefix("/")
+        
+        # get correct command info
+        for cog_name, command_name, description, usage, man, examples in all_commands:
+            if command_name == clean_command:
+                return command_name, cog_name, description, usage, man, examples
+        
+        return None, None, None, None, None, None
+    
+    # Get all cogs files from the cogs folder
+    async def get_all_cogs(self):
+        import os
+        import importlib
+        cogs = []
+        for filename in os.listdir("cogs"):
+            if filename.endswith(".py") and not filename.startswith("__"):
+                cog_name = filename[:-3]
+                cogs.append(cog_name)
+        return cogs
+    
+    # Find the Cog subclass defined in a cog module
+    def get_cog_class(self, cog_module):
+        for attr_name in dir(cog_module):
+            attr = getattr(cog_module, attr_name)
+            if isinstance(attr, type) and issubclass(attr, Cog) and attr is not Cog:
+                return attr
+        return None
+
+    # Read the docstring of a command and return the description and usage
+    async def get_command_docstring(self, cog_name, command_name):
+        import importlib
+        cog_module = importlib.import_module(f"cogs.{cog_name}")
+        cog_class = self.get_cog_class(cog_module)
+        command_method = getattr(cog_class, command_name)
+        docstring = command_method.__doc__
+        if docstring is None:
+            return None, None
+        lines = docstring.strip().splitlines()
+        description = None
+        usage = None
+        man = None
+        examples = None
+        for line in lines:
+            line = line.strip()
+            if line.startswith("Description:"):
+                description = line[len("Description:"):].strip()
+            elif line.startswith("Usage:"):
+                usage = line[len("Usage:"):].strip()
+            elif line.startswith("Man:"):
+                man = line[len("Man:"):].strip()
+            elif line.startswith("Examples:"):
+                examples = line[len("Examples:")].strip()
+        return description, usage, man, examples
+    
+    # Get all commands in a cog and return a list of tuples (command_name, description, usage)
+    async def get_all_commands_in_cog(self, cog_name):
+        import importlib
+        cog_module = importlib.import_module(f"cogs.{cog_name}")
+        cog_class = self.get_cog_class(cog_module)
+        commands = []
+        for attr_name in dir(cog_class):
+            attr = getattr(cog_class, attr_name)
+            if callable(attr) and getattr(attr, "__cog_command__", False):
+                command_name = attr_name
+                description, usage, man, examples = await self.get_command_docstring(cog_name, command_name)
+                commands.append((command_name, description, usage, man, examples))
+        return commands
+    
+    # Get all commands in the bot and return a list of tuples (cog_name, command_name, description, usage)
+    async def get_all_commands(self):
+        cogs = await self.get_all_cogs()
+        all_commands = []
+        for cog_name in cogs:
+            commands = await self.get_all_commands_in_cog(cog_name)
+            for command_name, description, usage, man, examples in commands:
+                all_commands.append((cog_name, command_name, description, usage, man, examples))
+        return all_commands
 
 async def setup(bot: fluxer.Bot):
     await bot.add_cog(LinuxLikeTools(bot))
