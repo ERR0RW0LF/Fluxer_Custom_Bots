@@ -16,6 +16,8 @@ def get_log_level() -> int:
 dotenv.load_dotenv()
 
 
+BOT_HOSTER_FLUXER_ID = os.getenv("YOUR_FLUXER_USER_ID")
+
 # Set up logging
 logging.basicConfig(level=get_log_level())
 logger = logging.getLogger(__name__)
@@ -34,6 +36,9 @@ presence_cache: dict[int, str] = {}
 @bot.command()
 @fluxer.has_permission(fluxer.Permissions.ADMINISTRATOR)
 async def _bot(ctx: fluxer.models.message.Message):
+    if ctx.author.id != BOT_HOSTER_FLUXER_ID:
+        ctx.reply("Ask the person hosting the bot!")
+        return
     content = ctx.content
     split_message = content.split()
     if split_message[1] == "reload":

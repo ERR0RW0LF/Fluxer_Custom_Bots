@@ -354,6 +354,26 @@ class LinuxLikeTools(Cog):
             for command_name, description, usage, man, examples in commands:
                 all_commands.append((cog_name, command_name, description, usage, man, examples))
         return all_commands
+    
+    @Cog.command()
+    async def internet_checksum(self,ctx: fluxer.models.message.Message):
+        content = ctx.content
+        content = content.removeprefix("/internet_checksum ")
+        
+        # Convert content to 16 bit ints
+        content_bytes = content.encode('utf-8')
+        checksum = 0
+        
+        # Add the 16 bit ints together with carry out bit being added back in at the end
+        for i in range(0, len(content_bytes), 2):
+            if i+1 < len(content_bytes):
+                word = (content_bytes[i] << 8) + content_bytes[i+1]
+            else:
+                word = (content_bytes[i] << 8)
+            checksum += word
+            checksum = (checksum & 0xFFFF) + (checksum >> 16)
+            
+
 
 async def setup(bot: fluxer.Bot):
     await bot.add_cog(LinuxLikeTools(bot))
