@@ -18,7 +18,7 @@ class LinuxLikeTools(Cog):
     @Cog.command()
     async def base64(self, ctx: fluxer.models.message.Message):
         """
-        Description: Encodes or decodes a string using Base64 and file type detection.
+        Description: Encodes or decodes a string using Base64.
         
         Usage: /base64 -d <string>  # decode | /base64 <string>  # encode
         """
@@ -372,7 +372,33 @@ class LinuxLikeTools(Cog):
                 word = (content_bytes[i] << 8)
             checksum += word
             checksum = (checksum & 0xFFFF) + (checksum >> 16)
+    
+    @Cog.command()
+    async def base85(self, ctx: fluxer.models.message.Message):
+        """
+        Description: Encodes or decodes a string using Base85.
+        
+        Usage: /base85 -d <string> # decode | /base85 <string> # encode
+        """
+        content = ctx.content
+        content = content.removeprefix("/base85 ")
+        if content.startswith("-d "):
+            content = content.removeprefix("-d ")
+            original_string = content
+            decoded_bytes = base64.b85decode(original_string)
+            decoded_string = decoded_bytes.decode('utf-8')
             
+            await ctx.reply(decoded_bytes)
+            return
+        else:
+            original_string = content
+            bytes_data = original_string.encode('utf-8')
+            base85_bytes = base64.b85encode(bytes_data)
+            base85_string = base85_bytes.decode('utf-8')
+            
+            await ctx.reply(base85_string)
+            return
+    
 
 
 async def setup(bot: fluxer.Bot):
