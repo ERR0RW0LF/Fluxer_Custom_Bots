@@ -39,7 +39,7 @@ presence_cache: dict[int, str] = {}
 @fluxer.has_permission(fluxer.Permissions.ADMINISTRATOR)
 async def _bot(ctx: fluxer.models.message.Message):
     if ctx.author.id != BOT_HOSTER_FLUXER_ID:
-        ctx.reply("Ask the person hosting the bot!")
+        await ctx.reply("Ask the person hosting the bot!")
         logger.debug(ctx.author.id)
         return
     content = ctx.content
