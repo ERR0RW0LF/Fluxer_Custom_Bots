@@ -3,7 +3,7 @@ import logging
 import os
 
 import fluxer
-from fluxer import Cog
+from fluxer import Cog, has_permission
 
 logger = logging.getLogger(__name__)
 
@@ -40,17 +40,29 @@ class Hak5Tools(Cog):
         if ctx.guild is None or ctx.author is None:
             return False
 
-        author_id = ctx.author.id
+        author_id = getattr(ctx.author, "id", None)
         if author_id is None:
             logger.debug("No author ID")
             return False
-        
-        owner_id = ctx.guild.owner_id
+
+        owner_id = getattr(ctx.guild, "owner_id", None)
+        if owner_id is None:
+            guild_id = getattr(ctx.guild, "id", None)
+            if guild_id is not None:
+                try:
+                    guild_data = await self.bot._http.get_guild(guild_id)
+                    owner_id = guild_data.get("owner_id")
+                except Exception as exc:
+                    logger.debug("Failed to fetch guild owner via HTTP: %s", exc)
+            if owner_id is None:
+                owner = getattr(ctx.guild, "owner", None)
+                owner_id = getattr(owner, "id", None)
+
         if owner_id is None:
             logger.debug("No Owner ID")
             return False
 
-        return author_id == owner_id
+        return int(author_id) == int(owner_id)
 
     async def _discover_products_sitemap_url(self, base_url="https://hak5.org/sitemap.xml"):
         import requests
@@ -298,6 +310,7 @@ class Hak5Tools(Cog):
         return None
 
     @Cog.command()
+    @has_permission(fluxer.Permissions.ADMINISTRATOR)
     async def update_hak5_product_list(self, ctx: fluxer.models.message.Message):
         """
         Description: Updates the Hak5 product list from the discovered product sitemap.
@@ -313,9 +326,9 @@ class Hak5Tools(Cog):
             await ctx.send("This command can only be used in a guild.")
             return
 
-        if not await self._is_guild_owner(ctx):
-            await ctx.send("Only the server owner can manage Hak5 product updates.")
-            return
+        #if not await self._is_guild_owner(ctx):
+        #    await ctx.send("Only the server owner can manage Hak5 product updates.")
+        #    return
 
         update_mode = len(split_message) == 3 and split_message[2] == "update"
         force_mode = len(split_message) == 3 and split_message[2] == "force"
