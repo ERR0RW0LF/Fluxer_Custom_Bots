@@ -36,11 +36,28 @@ class Hak5Tools(Cog):
             except Exception as exc:
                 print(f"[debug] Failed to notify subscriber {user_id}: {exc}")
 
-    def _is_guild_owner(self, ctx):
-        if ctx.guild is None:
+    async def _is_guild_owner(self, ctx: fluxer.models.message.Message):
+        if ctx.guild is None or ctx.author is None:
             return False
-        owner_id = getattr(ctx.guild, "owner_id", None)
-        return owner_id is not None and ctx.author.id == owner_id
+
+        author_id = getattr(ctx.author, "id", None)
+        if author_id is None:
+            return False
+
+        owner_id = None
+        for attr_name in ("owner_id", "ownerId"):
+            owner_id = getattr(ctx.guild, attr_name, None)
+            if owner_id is not None:
+                break
+
+        if owner_id is None:
+            owner = getattr(ctx.guild, "owner", None)
+            owner_id = getattr(owner, "id", None)
+
+        if owner_id is None:
+            return False
+
+        return int(author_id) == int(owner_id)
 
     async def _discover_products_sitemap_url(self, base_url="https://hak5.org/sitemap.xml"):
         import requests
@@ -303,7 +320,7 @@ class Hak5Tools(Cog):
             await ctx.send("This command can only be used in a guild.")
             return
 
-        if not self._is_guild_owner(ctx):
+        if not await self._is_guild_owner(ctx):
             await ctx.send("Only the server owner can manage Hak5 product updates.")
             return
 
@@ -345,7 +362,7 @@ class Hak5Tools(Cog):
         if ctx.guild is None:
             await ctx.send("This command can only be used in a guild.")
             return
-        if not self._is_guild_owner(ctx):
+        if not await self._is_guild_owner(ctx):
             await ctx.send("Only the server owner can enable Hak5 products.")
             return
 
@@ -357,7 +374,7 @@ class Hak5Tools(Cog):
         if ctx.guild is None:
             await ctx.send("This command can only be used in a guild.")
             return
-        if not self._is_guild_owner(ctx):
+        if not await self._is_guild_owner(ctx):
             await ctx.send("Only the server owner can disable Hak5 products.")
             return
 
