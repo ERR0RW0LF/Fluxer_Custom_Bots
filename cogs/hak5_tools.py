@@ -42,13 +42,15 @@ class Hak5Tools(Cog):
 
         author_id = ctx.author.id
         if author_id is None:
+            logger.debug("No author ID")
             return False
         
         owner_id = ctx.guild.owner_id
         if owner_id is None:
+            logger.debug("No Owner ID")
             return False
 
-        return int(author_id) == int(owner_id)
+        return author_id == owner_id
 
     async def _discover_products_sitemap_url(self, base_url="https://hak5.org/sitemap.xml"):
         import requests
