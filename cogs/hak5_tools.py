@@ -40,20 +40,11 @@ class Hak5Tools(Cog):
         if ctx.guild is None or ctx.author is None:
             return False
 
-        author_id = getattr(ctx.author, "id", None)
+        author_id = ctx.author.id
         if author_id is None:
             return False
-
-        owner_id = None
-        for attr_name in ("owner_id", "ownerId"):
-            owner_id = getattr(ctx.guild, attr_name, None)
-            if owner_id is not None:
-                break
-
-        if owner_id is None:
-            owner = getattr(ctx.guild, "owner", None)
-            owner_id = getattr(owner, "id", None)
-
+        
+        owner_id = ctx.guild.owner_id
         if owner_id is None:
             return False
 
