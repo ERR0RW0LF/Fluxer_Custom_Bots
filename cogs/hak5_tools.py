@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+from urllib.parse import urlparse
 
 import fluxer
 from fluxer import Cog, has_permission
@@ -75,12 +76,20 @@ class Hak5Tools(Cog):
         root = ET.fromstring(response.content)
         sitemap_ns = root.tag.split("}")[0].strip("{") if root.tag.startswith("{") else ""
         ns = {"sm": sitemap_ns}
-        for item in root.findall("sm:url", ns):
+        sitemap_nodes = root.findall("sm:sitemap", ns)
+        if sitemap_nodes:
+            candidate_nodes = sitemap_nodes
+        else:
+            candidate_nodes = root.findall("sm:url", ns)
+
+        for item in candidate_nodes:
             loc = item.find("sm:loc", ns)
             if loc is None or loc.text is None:
                 continue
             loc_text = loc.text.strip()
-            if "products" in loc_text.lower() and loc_text.endswith(".xml"):
+            parsed_loc = urlparse(loc_text)
+            loc_path = parsed_loc.path.lower()
+            if "product" in loc_path and loc_path.endswith(".xml"):
                 return loc_text
         raise RuntimeError("Could not find a product sitemap URL in the Hak5 sitemap")
 
