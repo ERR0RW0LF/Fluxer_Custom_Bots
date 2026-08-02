@@ -141,7 +141,7 @@ async def main():
     await db.init()
     try:
         await load_extensions()
-        bot.run(os.getenv("FLUXER_TOKEN"))
+        await bot.start(os.getenv("FLUXER_TOKEN"))
     finally:
         await db.close()
 
