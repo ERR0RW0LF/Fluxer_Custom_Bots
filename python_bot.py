@@ -1,11 +1,12 @@
 import asyncio
-from calendar import c
 import os
 
 import logging
 import fluxer
 import dotenv
 from pprint import pprint
+
+from database import Database
 
 def get_log_level() -> int:
     log_level = os.getenv("LOG_LEVEL", "INFO").strip().upper()
@@ -15,6 +16,7 @@ def get_log_level() -> int:
 # Load environment variables from .env file
 dotenv.load_dotenv()
 
+db = Database()
 
 BOT_HOSTER_FLUXER_ID = os.getenv("YOUR_FLUXER_USER_ID")
 
@@ -26,8 +28,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 bot = fluxer.Bot(command_prefix="/", intents=fluxer.Intents.default() | fluxer.Intents.GUILD_PRESENCES)
-
-
+bot.db = db
 
 # fluxer doesn't parse or cache PRESENCE_UPDATE events, so we track statuses ourselves.
 presence_cache: dict[int, str] = {}
@@ -136,6 +137,14 @@ async def on_ready():
     else:
         logger.error("Logged in, but bot.user is None. Exiting.")
 
+async def main():
+    await db.init()
+    try:
+        await load_extensions()
+        bot.run(os.getenv("FLUXER_TOKEN"))
+    finally:
+        await db.close()
+
+
 if __name__ == "__main__":
-    asyncio.run(load_extensions())
-    bot.run(os.getenv("FLUXER_TOKEN"))
+    asyncio.run(main())

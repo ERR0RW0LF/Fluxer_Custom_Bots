@@ -1,4 +1,22 @@
 services:
+  postgres:
+    image: postgres:16
+    container_name: fluxer_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fluxer
+      POSTGRES_USER: fluxer
+      POSTGRES_PASSWORD: fluxerpass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fluxer -d fluxer"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   fluxer_bot:
     build:
       context: .
@@ -7,6 +25,11 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - ./logs:/app/logs
 
+volumes:
+  postgres_data:

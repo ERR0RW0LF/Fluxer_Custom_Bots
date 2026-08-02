@@ -1,260 +1,120 @@
-import fluxer
-from fluxer import Cog
-from fluxer.checks import has_permission
+import asyncio
 import logging
 import os
 
+import fluxer
+from fluxer import Cog
+
 logger = logging.getLogger(__name__)
+
 
 class Hak5Tools(Cog):
     def __init__(self, bot: fluxer.Bot):
         super().__init__(bot)
-    
-    @Cog.listener()
-    async def on_raw_reaction_add(self, raw: fluxer.models.reaction.RawReactionActionEvent):
-        print(f"[debug] on_raw_reaction_add: {raw}")
-        if raw.user_id == self.bot.user.id:
-            return
+        self._periodic_task = None
 
-        # load hak5_products.json to find the product with the embed message id 
-        import json
-        try:
-            with open(f"hak5_products_{raw.guild_id}.json", "r") as f:
-                products = json.load(f)
-        except FileNotFoundError:
-            products = []
+    async def clear_channel_helper(self, channel: fluxer.models.channel.Channel):
+        while True:
+            messages = await channel.fetch_messages(limit=100)
+            if not messages:
+                break
+            for message in messages:
+                try:
+                    await message.delete()
+                except Exception as exc:
+                    print(f"[debug] clear_channel_helper failed: {exc}")
 
-        for product in products:
-            if product.get("embed_message_id") == raw.message_id:
-                # this is a reaction to a product embed message
-                print(f"[debug] Reaction to product {product.get('loc')}: {raw.emoji.unicode}")
-                product.setdefault("interested_users", [])
-                if raw.emoji.unicode == "⭐":
-                    if raw.user_id not in product["interested_users"]:
-                        product["interested_users"].append(raw.user_id)
-                        products = [p if p.get("loc") != product.get("loc") else product for p in products]
-                        with open(f"hak5_products_{raw.guild_id}.json", "w") as f:
-                            json.dump(products, f, indent=4)
-                        print(f"[debug] Added user {raw.user_id} to interested_users for product {product.get('loc')}")
-                        # dm user that they have been added to the interested_users list for this product
-                        user = await self.bot.fetch_user(raw.user_id)
-                        dm = await user.create_dm()
-                        await dm.send(f"You have been added to the interested_users list for product {product.get('loc')}. You will be notified when this product is updated.")
-                        break
+    async def notify_new_product_subscribers(self, guild_id, product_title, product_loc):
+        subscribers = await self.bot.db.get_new_product_subscribers(guild_id)
+        for user_id in subscribers:
+            try:
+                user = await self.bot.fetch_user(user_id)
+                dm = await user.create_dm()
+                await dm.send(
+                    f"New Hak5 product added: {product_title}\n{product_loc}"
+                )
+            except Exception as exc:
+                print(f"[debug] Failed to notify subscriber {user_id}: {exc}")
 
-    @Cog.listener()
-    async def on_raw_reaction_remove(self, raw):
-        print(f"[debug] on_raw_reaction_remove: {raw}")
-        
-        if raw.user_id == self.bot.user.id:
-            return
-        
-        # load hak5_products.json to find the product with the embed message id 
-        import json
-        try:
-            with open(f"hak5_products_{raw.guild_id}.json", "r") as f:
-                products = json.load(f)
-        except FileNotFoundError:
-            products = []
-        
-        for product in products:
-            if product.get("embed_message_id") == raw.message_id:
-                # this is the removal of a reaction to a product embed message
-                print(f"[debug] Reaction removed from product {product.get('loc')}: {raw.emoji.unicode}")
-                if raw.emoji.unicode == "⭐":
-                    if raw.user_id in product.get("interested_users", []):
-                        product["interested_users"].remove(raw.user_id)
-                        products = [p if p.get("loc") != product.get("loc") else product for p in products]
-                        with open(f"hak5_products_{raw.guild_id}.json", "w") as f:
-                            json.dump(products, f, indent=4)
-                        print(f"[debug] Removed user {raw.user_id} from interested_users for product {product.get('loc')}")
-                        # dm user that they have been removed from the interested_users list for this product
-                        user = await self.bot.fetch_user(raw.user_id)
-                        dm = await user.create_dm()
-                        await dm.send(f"You have been removed from the interested_users list for product {product.get('loc')}. You will no longer be notified when this product is updated.")
-                        break
-    
-    async def get_channel_by_name(self, guild: fluxer.models.guild.Guild, name: str) -> fluxer.models.channel.Channel | None:
-        """fluxer has no cache/lookup for guild channels by name, so hit the API directly."""
-        data = await self.bot._http.get_guild_channels(guild.id)
-        for channel_data in data:
-            if channel_data.get("name") == name:
-                return fluxer.models.channel.Channel.from_data(channel_data, self.bot._http)
-        return None
-
-    
-    @Cog.command()
-    @fluxer.has_permission(fluxer.Permissions.ADMINISTRATOR)
-    async def update_hak5_product_list(self, ctx: fluxer.models.message.Message):
-        """
-        Description: Updates the Hak5 product list from the specified XML URL.
-        
-        Usage: /update_hak5_product_list <url to xml file> [force] [update]
-        """
-        split_message = ctx.content.split()
-        print(split_message)
-        if (len(split_message) != 2 and "force" not in split_message and "update" not in split_message) or "help" in split_message or (len(split_message) != 3 and "force" in split_message and "update" in split_message):
-            await ctx.send("This command updates the Hak5 product list. Usage: /update_hak5_product_list <url to xml file>")
-            return
-
-        url = split_message[1]
-
+    def _is_guild_owner(self, ctx):
         if ctx.guild is None:
-            await ctx.send("This command can only be used in a guild.")
-            return
+            return False
+        owner_id = getattr(ctx.guild, "owner_id", None)
+        return owner_id is not None and ctx.author.id == owner_id
+
+    async def _discover_products_sitemap_url(self, base_url="https://hak5.org/sitemap.xml"):
+        import requests
+        import xml.etree.ElementTree as ET
+
+        response = requests.get(base_url, timeout=15)
+        if response.status_code != 200:
+            raise RuntimeError(f"Failed to download {base_url}: {response.status_code}")
+
+        root = ET.fromstring(response.content)
+        sitemap_ns = root.tag.split("}")[0].strip("{") if root.tag.startswith("{") else ""
+        ns = {"sm": sitemap_ns}
+        for item in root.findall("sm:url", ns):
+            loc = item.find("sm:loc", ns)
+            if loc is None or loc.text is None:
+                continue
+            loc_text = loc.text.strip()
+            if "products" in loc_text.lower() and loc_text.endswith(".xml"):
+                return loc_text
+        raise RuntimeError("Could not find a product sitemap URL in the Hak5 sitemap")
+
+    async def _refresh_guild_products(self, guild_id, guild, force=False):
+        settings = await self.bot.db.get_server_settings(guild_id)
+        if not settings.get("enabled", True):
+            return None
 
         channel_name = os.getenv("PRODUCTS_CHANNEL_NAME")
         if not channel_name:
-            await ctx.send("PRODUCTS_CHANNEL_NAME is not set in .env.")
-            return
+            return None
 
-        products_channel = await self.get_channel_by_name(ctx.guild, channel_name)
+        if guild is None:
+            try:
+                guild = await self.bot.fetch_guild(guild_id)
+            except Exception:
+                return None
+
+        products_channel = await self.get_channel_by_name(guild, channel_name)
         if products_channel is None:
-            await ctx.send(f"Could not find a channel named '{channel_name}' in this guild.")
-            return
+            return None
 
-        if len(split_message) == 3 and split_message[2] == "force":
-            # clear the channel of all messages before updating the product list
-            # create cleaning message in product channel
-            await ctx.reply("Clearing channel...")
-            await clear_channel_helper(products_channel)
-            # clear_channel_helper already deletes every message in the channel,
-            # including the "Clearing channel..." message itself.
+        sitemap_url = settings.get("products_sitemap_url")
+        if not sitemap_url:
+            sitemap_url = await self._discover_products_sitemap_url()
+            await self.bot.db.set_products_sitemap_url(guild_id, sitemap_url)
 
-            # delete the hak5_products.json file if it exists
-            if os.path.exists(f"hak5_products_{ctx.guild_id}.json"):
-                os.remove(f"hak5_products_{ctx.guild_id}.json")
-                await ctx.send("Deleted hak5_products.json file.")
-
-
-
-        # download the xml file from the url
         import requests
-        response = requests.get(url)
-        if response.status_code != 200:
-            await ctx.send(f"Failed to download the XML file from {url}. Status code: {response.status_code}")
-            return
-        # Example data from Hak5 sitemap.xml file:
-        """
-        <urlset>
-        <span id="uas-port"/>
-        <url>
-        <loc>https://hak5.org/</loc>
-        <changefreq>daily</changefreq>
-        </url>
-        <url>
-        <loc>https://hak5.org/products/wifi-pineapple</loc>
-        <lastmod>2026-07-07T16:31:24-07:00</lastmod>
-        <changefreq>daily</changefreq>
-        <image:image>
-        <image:loc>
-        https://cdn.shopify.com/s/files/1/0068/2142/products/wp-mk7_81d03a53-bf1a-426f-9425-a34c8b3d9c85.jpg?v=1599680489
-        </image:loc>
-        <image:title>WiFi Pineapple</image:title>
-        <image:caption/>
-        </image:image>
-        </url>
-        <url>
-        <loc>https://hak5.org/products/ubertooth-one</loc>
-        <lastmod>2026-07-07T16:31:24-07:00</lastmod>
-        <changefreq>daily</changefreq>
-        <image:image>
-        <image:loc>
-        https://cdn.shopify.com/s/files/1/0068/2142/products/ubertooth.jpg?v=1496213414
-        </image:loc>
-        <image:title>Ubertooth One</image:title>
-        <image:caption/>
-        </image:image>
-        </url>
-        <url>
-        <loc>https
-        """
-
-        # load the old data from the json file
-        import json
-        try:
-            with open(f"hak5_products_{ctx.guild_id}.json", "r") as f:
-                old_products = json.load(f)
-        except FileNotFoundError:
-            old_products = []
-
-
-        # convert the xml file to a list of products with dict for all the product data
         import xml.etree.ElementTree as ET
-        root = ET.fromstring(response.content)
 
-        # root.tag comes back as "{<namespace-uri>}urlset" - reuse that namespace to
-        # query children, since ElementTree won't match bare "url"/"loc" tags otherwise.
+        response = requests.get(sitemap_url, timeout=15)
+        if response.status_code != 200:
+            raise RuntimeError(f"Failed to download {sitemap_url}: {response.status_code}")
+
+        root = ET.fromstring(response.content)
         sitemap_ns = root.tag.split("}")[0].strip("{") if root.tag.startswith("{") else ""
         ns = {"sm": sitemap_ns, "image": "http://www.google.com/schemas/sitemap-image/1.1"}
 
-        print(f"Found {len(root)} products in the XML file.")
-        print(f"Root tag: {root.tag}, attributes: {root.attrib}")
-        products = []
-        """ if len(split_message) == 3 and split_message[2] == "update":
-            # force update the product list without clearing the channel or deleting the json file only by updating all products
-            await ctx.send("Force updating the Hak5 product list...")
-
-            for url in root.findall("sm:url", ns):
-                loc = url.find("sm:loc", ns)
-                loc_text = loc.text if loc is not None else None
-
-                old_product = next((p for p in old_products if p.get("loc") == loc_text), None) if old_products else None
-
-                product = {}
-                if loc_text is not None:
-                    product["loc"] = loc_text
-                lastmod = url.find("sm:lastmod", ns)
-                if lastmod is not None:
-                    product["lastmod"] = lastmod.text
-                changefreq = url.find("sm:changefreq", ns)
-                if changefreq is not None:
-                    product["changefreq"] = changefreq.text
-                image = url.find("image:image", ns)
-                if image is not None:
-                    image_loc = image.find("image:loc", ns)
-                    if image_loc is not None:
-                        product["image_loc"] = image_loc.text
-                    image_title = image.find("image:title", ns)
-                    if image_title is not None:
-                        product["image_title"] = image_title.text
-                    image_caption = image.find("image:caption", ns)
-                    if image_caption is not None:
-                        product["image_caption"] = image_caption.text
-
-                # Hak5's sitemap bumps <lastmod> daily for every product regardless of
-                # whether it actually changed (changefreq is "daily"). Only hit the
-                # live product page (which rate-limits us at ~30 req/run - see the
-                # 429/503s in the logs) when the sitemap's own image fields hint that
-                # something really changed; otherwise just carry the old record over.
-                sitemap_fields = ("image_loc", "image_title", "image_caption")
-                sitemap_unchanged = old_product is not None and all(
-                    old_product.get(f) == product.get(f) for f in sitemap_fields
-                )
-
-                 """
-
-
-
-
-        # For each product, get the loc, lastmod, changefreq, and image data, also generate a embed message with the product data and send it to the channel and add the id of the embed message to the product data dict, then save the product data to a json file
         changed_products = []
-        for url in root.findall("sm:url", ns):
-            loc = url.find("sm:loc", ns)
+        for item in root.findall("sm:url", ns):
+            loc = item.find("sm:loc", ns)
             loc_text = loc.text if loc is not None else None
+            if not loc_text:
+                continue
 
-            old_product = next((p for p in old_products if p.get("loc") == loc_text), None) if old_products else None
+            old_product = await self.bot.db.get_product(guild_id, loc_text)
+            product = {"loc": loc_text}
 
-            product = {}
-            if loc_text is not None:
-                product["loc"] = loc_text
-            lastmod = url.find("sm:lastmod", ns)
+            lastmod = item.find("sm:lastmod", ns)
             if lastmod is not None:
                 product["lastmod"] = lastmod.text
-            changefreq = url.find("sm:changefreq", ns)
+            changefreq = item.find("sm:changefreq", ns)
             if changefreq is not None:
                 product["changefreq"] = changefreq.text
-            image = url.find("image:image", ns)
+
+            image = item.find("image:image", ns)
             if image is not None:
                 image_loc = image.find("image:loc", ns)
                 if image_loc is not None:
@@ -266,64 +126,46 @@ class Hak5Tools(Cog):
                 if image_caption is not None:
                     product["image_caption"] = image_caption.text
 
-            # Hak5's sitemap bumps <lastmod> daily for every product regardless of
-            # whether it actually changed (changefreq is "daily"). Only hit the
-            # live product page (which rate-limits us at ~30 req/run - see the
-            # 429/503s in the logs) when the sitemap's own image fields hint that
-            # something really changed; otherwise just carry the old record over.
             sitemap_fields = ("image_loc", "image_title", "image_caption")
             sitemap_unchanged = old_product is not None and all(
                 old_product.get(f) == product.get(f) for f in sitemap_fields
             )
 
-
-
-            if sitemap_unchanged and "update" not in split_message:
-                print(f"Skipping {loc_text} because it hasn't changed since last time.")
+            if sitemap_unchanged and not force:
                 product["description"] = old_product.get("description")
                 product["embed_message_id"] = old_product.get("embed_message_id")
                 product["interested_users"] = old_product.get("interested_users", [])
-                products.append(product)
+                await self.bot.db.upsert_product(guild_id, product)
                 continue
 
-            # get description from the website if the loc is pointing to.
-            # example which is contained in the response to https://hak5.org/products/zzyzx
-            """
-            <meta property="og:description" content="Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed non risus. Suspendisse lectus tortor, dignissim sit amet, adipiscing nec, ultricies sed, dolor. Cras elementum ultrices diam. Maecenas ligula massa, varius a, semper congue, euismod non, mi.  Proin porttitor, orci nec nonummy molestie, enim est eleifend mi, n">
-            """
             description = None
-            if loc_text:
-                try:
-                    response = requests.get(loc_text)
-                    if response.status_code == 200:
-                        from bs4 import BeautifulSoup
-                        soup = BeautifulSoup(response.content, "html.parser")
-                        # price: <meta property="product:price:amount" content="5.00">
-      # <meta property="product:price:currency" content="USD">
-                        price_meta = soup.find("meta", property="product:price:amount")
-                        if price_meta and price_meta.get("content"):
-                            product["price"] = price_meta["content"]
-                        else:
-                            print(f"No price span found for {loc_text}, setting to sold out.")
-                            product["price"] = old_product.get("price") if old_product else "Sold Out"
-                        # Sold out status:
-                        sold_out_span = soup.find("span", class_="text")
-                        if sold_out_span and "Sold Out" in sold_out_span.get_text():
-                            product["status"] = "Sold Out"
-                        else:
-                            product["status"] = "In Stock"
-                        meta_description = soup.find("meta", property="og:description")
-                        if meta_description and meta_description.get("content"):
-                            description = meta_description["content"]
-                        else:
-                            print(f"No og:description meta tag found for {loc_text}, keeping previous description.")
-                            description = old_product.get("description") if old_product else None
+            try:
+                product_response = requests.get(loc_text, timeout=15)
+                if product_response.status_code == 200:
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(product_response.content, "html.parser")
+                    price_meta = soup.find("meta", property="product:price:amount")
+                    if price_meta and price_meta.get("content"):
+                        product["price"] = price_meta["content"]
                     else:
-                        print(f"Got status {response.status_code} fetching {loc_text}, keeping previous description.")
+                        product["price"] = old_product.get("price") if old_product else "Sold Out"
+
+                    sold_out_span = soup.find("span", class_="text")
+                    if sold_out_span and "Sold Out" in sold_out_span.get_text():
+                        product["status"] = "Sold Out"
+                    else:
+                        product["status"] = "In Stock"
+
+                    meta_description = soup.find("meta", property="og:description")
+                    if meta_description and meta_description.get("content"):
+                        description = meta_description["content"]
+                    else:
                         description = old_product.get("description") if old_product else None
-                except Exception as e:
-                    print(f"Failed to get description from {loc_text}: {e}, keeping previous description.")
+                else:
                     description = old_product.get("description") if old_product else None
+            except Exception as exc:
+                print(f"[debug] Failed to get description from {loc_text}: {exc}")
+                description = old_product.get("description") if old_product else None
 
             if description is not None:
                 product["description"] = description
@@ -333,7 +175,6 @@ class Hak5Tools(Cog):
                 description=description or product.get("image_caption") or "No description",
                 url=product.get("loc"),
             )
-
             if product.get("image_loc"):
                 embed.set_image(url=product["image_loc"])
 
@@ -346,50 +187,210 @@ class Hak5Tools(Cog):
                         old_embed_message = await products_channel.fetch_message(old_embed_message_id)
                         await old_embed_message.edit(embeds=[embed.to_dict()])
                         product["embed_message_id"] = old_embed_message_id
-                        # ping the interested users in the channel that the product has been updated using a reaction to the new embed message
                         mentions = " ".join(f"<@{uid}>" for uid in interested_users)
                         if mentions:
-                            await old_embed_message.reply(f"Product updated: [{product.get('image_title', product.get('loc'))}]({product.get('loc')})\n{mentions}")
-                    except Exception as e:
-                        print(f"Failed to edit old embed message: {e}, posting a new one instead.")
+                            await old_embed_message.reply(
+                                f"Product updated: [{product.get('image_title', product.get('loc'))}]({product.get('loc')})\n{mentions}"
+                            )
+                    except Exception as exc:
+                        print(f"Failed to edit old embed message: {exc}, posting a new one instead.")
                         embed_message = await products_channel.send(embed=embed)
-                        await embed_message.add_reaction("⭐")  # add a star reaction for users to express interest
+                        await embed_message.add_reaction("⭐")
                         product["embed_message_id"] = embed_message.id
                 else:
-                    print(f"No old embed message ID for {loc_text}, posting new embed.")
                     embed_message = await products_channel.send(embed=embed)
-                    await embed_message.add_reaction("⭐")  # add a star reaction for users to express interest
+                    await embed_message.add_reaction("⭐")
                     product["embed_message_id"] = embed_message.id
             else:
-                interested_users = []
-                # sending a new embed message to the channel
-                product["interested_users"] = interested_users
+                product["interested_users"] = []
                 embed_message = await products_channel.send(embed=embed)
-                await embed_message.add_reaction("⭐")  # add a star reaction for users to express interest
+                await embed_message.add_reaction("⭐")
                 product["embed_message_id"] = embed_message.id
+                await self.notify_new_product_subscribers(guild_id, product.get("image_title", product.get("loc")), product.get("loc"))
+                changed_products.append(product.get("image_title", product.get("loc")))
 
-            products.append(product)
-            changed_products.append(product.get("image_title", product.get("loc")))
+            await self.bot.db.upsert_product(guild_id, product)
+            if old_product:
+                changed_products.append(product.get("image_title", product.get("loc")))
 
-        # save the products to a json file
-        import json
-        with open(f"hak5_products_{ctx.guild_id}.json", "w") as f:
-            json.dump(products, f, indent=4)
+        return changed_products
 
-        summary = f"Updated Hak5 product list: {len(changed_products)} product(s) changed and posted to {products_channel.mention}."
+    async def start_periodic_updates(self):
+        if self._periodic_task is not None:
+            return
+        self._periodic_task = asyncio.create_task(self._periodic_loop())
+
+    async def stop_periodic_updates(self):
+        if self._periodic_task is not None:
+            self._periodic_task.cancel()
+            self._periodic_task = None
+
+    async def _periodic_loop(self):
+        while True:
+            try:
+                for guild_id in await self.bot.db.get_enabled_guilds():
+                    try:
+                        guild = self.bot.get_guild(guild_id)
+                        await self._refresh_guild_products(guild_id, guild)
+                    except Exception as exc:
+                        print(f"[debug] periodic refresh failed for guild {guild_id}: {exc}")
+            except Exception as exc:
+                print(f"[debug] periodic refresh loop failed: {exc}")
+            await asyncio.sleep(3600)
+
+    @Cog.listener()
+    async def on_raw_reaction_add(self, raw: fluxer.models.reaction.RawReactionActionEvent):
+        print(f"[debug] on_raw_reaction_add: {raw}")
+        if raw.user_id == self.bot.user.id:
+            return
+
+        product = await self.bot.db.get_product_by_embed_message_id(raw.guild_id, raw.message_id)
+        if product is None:
+            return
+
+        emoji = getattr(raw.emoji, "unicode", None)
+        if emoji == "⭐" and raw.user_id not in product.get("interested_users", []):
+            await self.bot.db.add_interest(raw.guild_id, raw.user_id, product["loc"])
+            print(f"[debug] Added user {raw.user_id} to interested_users for product {product.get('loc')}")
+            user = await self.bot.fetch_user(raw.user_id)
+            dm = await user.create_dm()
+            await dm.send(
+                f"You have been added to the interested_users list for product {product.get('loc')}. You will be notified when this product is updated."
+            )
+
+    @Cog.listener()
+    async def on_raw_reaction_remove(self, raw):
+        print(f"[debug] on_raw_reaction_remove: {raw}")
+
+        if raw.user_id == self.bot.user.id:
+            return
+
+        product = await self.bot.db.get_product_by_embed_message_id(raw.guild_id, raw.message_id)
+        if product is None:
+            return
+
+        emoji = getattr(raw.emoji, "unicode", None)
+        if emoji == "⭐" and raw.user_id in product.get("interested_users", []):
+            await self.bot.db.remove_interest(raw.guild_id, raw.user_id, product["loc"])
+            print(f"[debug] Removed user {raw.user_id} from interested_users for product {product.get('loc')}")
+            user = await self.bot.fetch_user(raw.user_id)
+            dm = await user.create_dm()
+            await dm.send(
+                f"You have been removed from the interested_users list for product {product.get('loc')}. You will no longer be notified when this product is updated."
+            )
+
+    async def get_channel_by_name(self, guild: fluxer.models.guild.Guild, name: str) -> fluxer.models.channel.Channel | None:
+        """fluxer has no cache/lookup for guild channels by name, so hit the API directly."""
+        data = await self.bot._http.get_guild_channels(guild.id)
+        for channel_data in data:
+            if channel_data.get("name") == name:
+                return fluxer.models.channel.Channel.from_data(channel_data, self.bot._http)
+        return None
+
+    @Cog.command()
+    async def update_hak5_product_list(self, ctx: fluxer.models.message.Message):
+        """
+        Description: Updates the Hak5 product list from the discovered product sitemap.
+
+        Usage: /update_hak5_product_list [force] [update]
+        """
+        split_message = ctx.content.split()
+        if len(split_message) > 3 or (len(split_message) == 3 and split_message[2] not in {"force", "update"}):
+            await ctx.send("Usage: /update_hak5_product_list [force|update]")
+            return
+
+        if ctx.guild is None:
+            await ctx.send("This command can only be used in a guild.")
+            return
+
+        if not self._is_guild_owner(ctx):
+            await ctx.send("Only the server owner can manage Hak5 product updates.")
+            return
+
+        update_mode = len(split_message) == 3 and split_message[2] == "update"
+        force_mode = len(split_message) == 3 and split_message[2] == "force"
+
+        channel_name = os.getenv("PRODUCTS_CHANNEL_NAME")
+        if not channel_name:
+            await ctx.send("PRODUCTS_CHANNEL_NAME is not set in .env.")
+            return
+
+        products_channel = await self.get_channel_by_name(ctx.guild, channel_name)
+        if products_channel is None:
+            await ctx.send(f"Could not find a channel named '{channel_name}' in this guild.")
+            return
+
+        if force_mode:
+            await ctx.reply("Clearing channel...")
+            await self.clear_channel_helper(products_channel)
+            await self.bot.db.delete_guild_products(ctx.guild_id)
+            await ctx.send("Deleted previous Hak5 product records from the database.")
+
+        try:
+            changed_products = await self._refresh_guild_products(ctx.guild_id, ctx.guild, force=force_mode or update_mode)
+        except Exception as exc:
+            await ctx.send(f"Failed to refresh Hak5 products: {exc}")
+            return
+
+        summary = f"Updated Hak5 product list: {len(changed_products or [])} product(s) changed and posted to {products_channel.mention}."
         if changed_products:
-            # Discord caps message content at 2000 chars - a full catalog's worth of
-            # titles can blow past that and fail the send outright, so cap the list.
             shown_names = ", ".join(changed_products[:25])
             if len(changed_products) > 25:
                 shown_names += f", and {len(changed_products) - 25} more"
             summary += f"\nUpdated products: {shown_names}"
         await ctx.send(summary)
 
+    @Cog.command()
+    async def enable_hak5_products(self, ctx: fluxer.models.message.Message):
+        if ctx.guild is None:
+            await ctx.send("This command can only be used in a guild.")
+            return
+        if not self._is_guild_owner(ctx):
+            await ctx.send("Only the server owner can enable Hak5 products.")
+            return
+
+        await self.bot.db.set_server_enabled(ctx.guild_id, True)
+        await ctx.send("Hak5 product updates are now enabled for this server.")
+
+    @Cog.command()
+    async def disable_hak5_products(self, ctx: fluxer.models.message.Message):
+        if ctx.guild is None:
+            await ctx.send("This command can only be used in a guild.")
+            return
+        if not self._is_guild_owner(ctx):
+            await ctx.send("Only the server owner can disable Hak5 products.")
+            return
+
+        await self.bot.db.set_server_enabled(ctx.guild_id, False)
+        await ctx.send("Hak5 product updates are now disabled for this server.")
+
+    @Cog.command()
+    async def subscribe_hak5_updates(self, ctx: fluxer.models.message.Message):
+        if ctx.guild_id is None:
+            await ctx.send("Use this command in a server.")
+            return
+
+        await self.bot.db.subscribe_to_new_products(ctx.guild_id, ctx.author.id)
+        await ctx.send("You will now receive a DM when a new Hak5 product is added in this server.")
+
+    @Cog.command()
+    async def unsubscribe_hak5_updates(self, ctx: fluxer.models.message.Message):
+        if ctx.guild_id is None:
+            await ctx.send("Use this command in a server.")
+            return
+
+        await self.bot.db.unsubscribe_from_new_products(ctx.guild_id, ctx.author.id)
+        await ctx.send("You will no longer receive new-product notifications from this server.")
 
 
 async def setup(bot: fluxer.Bot):
-    await bot.add_cog(Hak5Tools(bot))
+    cog = Hak5Tools(bot)
+    await bot.add_cog(cog)
+    await cog.start_periodic_updates()
+
 
 async def teardown(bot):
+    cog = bot.get_cog("Hak5Tools")
+    if cog is not None:
+        await cog.stop_periodic_updates()
     await bot.remove_cog("Hak5Tools")
