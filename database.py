@@ -25,7 +25,7 @@ class Database:
     async def _create_tables(self):
         async with self.pool.acquire() as conn:
             await conn.execute(
-                """
+                """--sql
                 CREATE TABLE IF NOT EXISTS hak5_products (
                     guild_id BIGINT NOT NULL,
                     loc TEXT NOT NULL,
@@ -46,7 +46,7 @@ class Database:
             )
 
             await conn.execute(
-                """
+                """--sql
                 CREATE TABLE IF NOT EXISTS hak5_product_interest (
                     guild_id BIGINT NOT NULL,
                     user_id BIGINT NOT NULL,
@@ -58,7 +58,7 @@ class Database:
             )
 
             await conn.execute(
-                """
+                """--sql
                 CREATE TABLE IF NOT EXISTS hak5_new_product_subscribers (
                     guild_id BIGINT NOT NULL,
                     user_id BIGINT NOT NULL,
@@ -69,7 +69,7 @@ class Database:
             )
 
             await conn.execute(
-                """
+                """--sql
                 CREATE TABLE IF NOT EXISTS hak5_server_settings (
                     guild_id BIGINT PRIMARY KEY,
                     enabled BOOLEAN NOT NULL DEFAULT TRUE,
@@ -78,6 +78,24 @@ class Database:
                 )
                 """
             )
+            
+            await conn.execute(
+                """--sql
+                CREATE TABLE IF NOT EXISTS hak5_product_price_history (
+                    guild_id BIGINT NOT NULL,
+                    product_loc TEXT NOT NULL,
+                    price TEXT,
+                    status TEXT,
+                    observed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (guild_id, product_loc, observed_at)
+                );
+                
+                CREATE INDEX IF NOT EXISTS idx_hak5_price_history_lookup
+                ON hak5_product_price_history (guild_id, product_loc, observed_at DESC);
+                """
+            )
+            
+            
 
     async def delete_guild_products(self, guild_id):
         async with self.pool.acquire() as conn:
@@ -252,3 +270,59 @@ class Database:
                 guild_id,
             )
             return [row["user_id"] for row in rows]
+
+    async def append_price_history(self, guild_id, product):
+        if not product.get("loc"):
+            return
+        
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """--sql
+                INSERT INTO hak5_product_price_history(
+                    guild_id, product_loc, price, status
+                )
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (guild_id, product_loc, observed_at) DO NOTHING
+                """,
+                guild_id,
+                product.get("loc"),
+                product.get("price"),
+                product.get("status")
+            )
+    
+    async def get_full_history_of_product(self, guild_id, product_loc):
+        if not product_loc:
+            return
+        
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """--sql
+                SELECT price, status, observed_at FROM hak5_product_price_history
+                WHERE guild_id = $1 AND product_loc = $2
+                ORDER BY observed_at DESC
+                """,
+                guild_id,
+                product_loc
+            )
+        
+        return rows
+    
+    async def get_history_until_of_product(self, guild_id, product_loc, cutoff_time):
+        if not product_loc:
+            return
+        
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """--sql
+                SELECT price, status, observed_at FROM hak5_product_price_history
+                WHERE guild_id = $1
+                    AND product_loc = $2
+                    AND observed_at > $3
+                ORDER BY observed_at DESC
+                """,
+                guild_id,
+                product_loc,
+                cutoff_time
+            )
+        
+        return rows

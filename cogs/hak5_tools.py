@@ -6,6 +6,8 @@ from urllib.parse import urlparse
 import fluxer
 from fluxer import Cog, has_permission
 
+from database import Database
+
 logger = logging.getLogger(__name__)
 
 
@@ -240,6 +242,7 @@ class Hak5Tools(Cog):
                 await self.notify_new_product_subscribers(guild_id, product.get("image_title", product.get("loc")), product.get("loc"))
                 changed_products.append(product.get("image_title", product.get("loc")))
 
+            await self.bot.db.append_price_history(guild_id, product)
             await self.bot.db.upsert_product(guild_id, product)
             if old_product:
                 changed_products.append(product.get("image_title", product.get("loc")))
@@ -373,6 +376,7 @@ class Hak5Tools(Cog):
         await ctx.send(summary)
 
     @Cog.command()
+    @has_permission(fluxer.Permissions.ADMINISTRATOR)
     async def enable_hak5_products(self, ctx: fluxer.models.message.Message):
         if ctx.guild is None:
             await ctx.send("This command can only be used in a guild.")
@@ -385,6 +389,7 @@ class Hak5Tools(Cog):
         await ctx.send("Hak5 product updates are now enabled for this server.")
 
     @Cog.command()
+    @has_permission(fluxer.Permissions.ADMINISTRATOR)
     async def disable_hak5_products(self, ctx: fluxer.models.message.Message):
         if ctx.guild is None:
             await ctx.send("This command can only be used in a guild.")
@@ -414,6 +419,16 @@ class Hak5Tools(Cog):
         await self.bot.db.unsubscribe_from_new_products(ctx.guild_id, ctx.author.id)
         await ctx.send("You will no longer receive new-product notifications from this server.")
 
+    @Cog.command()
+    async def get_raw_full_price_product_history(self, ctx: fluxer.models.message.Message):
+        content = ctx.content
+        product_loc = content.removeprefix("/get_raw_full_price_product_history ")
+        db: Database = self.bot.db
+        rows = await db.get_full_history_of_product(ctx.guild_id,product_loc)
+        if not rows:
+            ctx.reply(f"No data fount for: {product_loc}")
+        
+        ctx.reply(f"{rows}")
 
 async def setup(bot: fluxer.Bot):
     cog = Hak5Tools(bot)
