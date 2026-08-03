@@ -426,9 +426,9 @@ class Hak5Tools(Cog):
         db: Database = self.bot.db
         rows = await db.get_full_history_of_product(ctx.guild_id,product_loc)
         if not rows:
-            ctx.reply(f"No data fount for: {product_loc}")
+            await ctx.reply(f"No data fount for: {product_loc}")
         
-        ctx.reply(f"{rows}")
+        await ctx.reply(f"{rows}")
 
 async def setup(bot: fluxer.Bot):
     cog = Hak5Tools(bot)
