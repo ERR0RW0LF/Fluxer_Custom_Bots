@@ -452,7 +452,7 @@ class Hak5Tools(Cog):
         import io
         
         # Extract dates and prices from the rows
-        dates = [row['timestamp'] for row in rows]
+        dates = [row['observed_at'] for row in rows]
         prices = [float(row['price']) for row in rows]
         
         # Create the plot
