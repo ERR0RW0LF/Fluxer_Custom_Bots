@@ -422,9 +422,9 @@ class Hak5Tools(Cog):
     @Cog.command()
     async def get_raw_full_price_product_history(self, ctx: fluxer.models.message.Message):
         content = ctx.content
-        product_loc = content.removeprefix("/get_raw_full_price_product_history ")
+        product_loc = content.removeprefix("/get_raw_full_price_product_history ").strip()
         db: Database = self.bot.db
-        rows = await db.get_full_history_of_product(ctx.guild_id,product_loc)
+        rows = await db.get_full_history_of_product(ctx.guild_id, product_loc)
         if not rows:
             await ctx.reply(f"No data found for: {product_loc}")
             return
