@@ -426,9 +426,49 @@ class Hak5Tools(Cog):
         db: Database = self.bot.db
         rows = await db.get_full_history_of_product(ctx.guild_id,product_loc)
         if not rows:
-            await ctx.reply(f"No data fount for: {product_loc}")
+            await ctx.reply(f"No data found for: {product_loc}")
+            return
         
         await ctx.reply(f"{rows}")
+    
+    @Cog.command()
+    async def price_history(self, ctx: fluxer.models.message.Message):
+        """
+        Description: Get the price history of a Hak5 product and display it as a graph generated using matplotlib.
+        
+        Usage: /price_history <product_url>
+        """
+        
+        content = ctx.content
+        product_loc = content.removeprefix("/price_history ")
+        db: Database = self.bot.db
+        
+        rows = await db.get_full_history_of_product(ctx.guild_id, product_loc)
+        if not rows:
+            await ctx.reply(f"No price history found for: {product_loc}")
+            return
+        
+        from matplotlib import pyplot as plt
+        import io
+        
+        # Extract dates and prices from the rows
+        dates = [row['timestamp'] for row in rows]
+        prices = [float(row['price']) for row in rows]
+        
+        # Create the plot
+        plt.figure(figsize=(10, 5))
+        plt.plot(dates, prices, marker='o')
+        plt.title(f"Price History for {product_loc}")
+        plt.xlabel("Date")
+        plt.ylabel("Price (USD)")
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        
+        # Save the plot to a BytesIO object
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        buf.seek(0)
+        await ctx.send(file=fluxer.File(buf, filename="price_history.png"))
 
 async def setup(bot: fluxer.Bot):
     cog = Hak5Tools(bot)
