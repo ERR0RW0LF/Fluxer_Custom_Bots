@@ -453,11 +453,36 @@ class Hak5Tools(Cog):
         
         # Extract dates and prices from the rows
         dates = [row['observed_at'] for row in rows]
-        prices = [float(row['price']) for row in rows]
+        prices = []
+        colors = []
+        filtered_dates = []
+        
+        for row in rows:
+            price_text = row["price"]
+            status = row["status"]
+
+            if price_text is None:
+                continue
+            
+            try:
+                price_value = float(price_text)
+            except ValueError:
+                continue
+            
+            filtered_dates.append(row["observed_at"])
+            prices.append(price_value)
+
+            if status == "Sold Out":
+                colors.append("red")
+            elif status == "In Stock":
+                colors.append("green")
+            else:
+                colors.append("gray")
         
         # Create the plot
         plt.figure(figsize=(10, 5))
-        plt.plot(dates, prices, marker='o')
+        plt.plot(filtered_dates, prices, color="black", linewidth=1, alpha=0.5)
+        plt.scatter(filtered_dates, prices, c=colors, s=40)
         plt.title(f"Price History for {product_loc}")
         plt.xlabel("Date")
         plt.ylabel("Price (USD)")
