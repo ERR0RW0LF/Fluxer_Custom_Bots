@@ -440,7 +440,7 @@ class Hak5Tools(Cog):
         """
         
         content = ctx.content
-        product_loc = content.removeprefix("/price_history ")
+        product_loc = content.removeprefix("/price_history ").strip()
         db: Database = self.bot.db
         
         rows = await db.get_full_history_of_product(ctx.guild_id, product_loc)
