@@ -4,4 +4,3 @@ python-dotenv==1.2.2
 requests==2.34.2
 asyncpg==0.31.0
 matplotlib==3.11.1
-io==0.0.1
