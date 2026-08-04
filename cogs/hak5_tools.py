@@ -330,7 +330,7 @@ class Hak5Tools(Cog):
         Usage: /update_hak5_product_list [force] [update]
         """
         split_message = ctx.content.split()
-        if len(split_message) > 3 or (len(split_message) == 3 and split_message[2] not in {"force", "update"}):
+        if len(split_message) > 2 or (len(split_message) == 2 and split_message[1] not in {"force", "update"}):
             await ctx.send("Usage: /update_hak5_product_list [force|update]")
             return
 
@@ -342,8 +342,8 @@ class Hak5Tools(Cog):
         #    await ctx.send("Only the server owner can manage Hak5 product updates.")
         #    return
 
-        update_mode = len(split_message) == 3 and split_message[2] == "update"
-        force_mode = len(split_message) == 3 and split_message[2] == "force"
+        update_mode = len(split_message) == 2 and split_message[1] == "update"
+        force_mode = len(split_message) == 2 and split_message[1] == "force"
 
         channel_name = os.getenv("PRODUCTS_CHANNEL_NAME")
         if not channel_name:
