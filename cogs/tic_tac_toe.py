@@ -29,7 +29,7 @@ class Tic_tac_toe(Cog):
         
         game_message = await ctx.reply(embed=game_embed)
     
-    def pretty_board(board: list) -> str:
+    def pretty_board(self, board: list) -> str:
         board_string = ""
         for cell_absolute_n in range(0,SIZE_OF_BOARD**2):
             cell_n = cell_absolute_n % SIZE_OF_BOARD
