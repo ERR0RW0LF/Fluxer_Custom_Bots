@@ -5,6 +5,7 @@ COPY requirements.txt ./
 COPY python_bot.py ./
 COPY database.py ./
 COPY cogs ./cogs
+COPY frames-ascii ./frames-ascii
 
 RUN pip install --no-cache-dir -r requirements.txt --break-system-packages
 
