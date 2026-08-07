@@ -38,9 +38,10 @@ class Tic_tac_toe(Cog):
             board_string = board_string + f"{board[cell_absolute_n]}"
             if cell_n == 2:
                 board_string = board_string + "\n"
-                print(cell_absolute_n % (SIZE_OF_BOARD**2-1))
                 if (cell_absolute_n % (SIZE_OF_BOARD**2-1)) != 0:
                     board_string = board_string + ("-"*11) + "\n"
+                else:
+                    board_string = board_string[:-1]
             else:
                 board_string = board_string + " | "
         
