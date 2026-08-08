@@ -89,7 +89,7 @@ class Tic_tac_toe(Cog):
             timeout_time = perf_time + max_time
             while perf_time < timeout_time:
                 game_message = await game_message.channel.fetch_message(game_message.id)
-                logger.info(game_message.reactions)
+                pprint(game_message.reactions)
                 
                 await sleep(1)
             
