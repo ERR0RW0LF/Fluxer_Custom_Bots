@@ -85,7 +85,7 @@ class Tic_tac_toe(Cog):
             perf_time = time.perf_counter()
             timeout_time = perf_time + max_time
             while perf_time < timeout_time:
-                reactions_to_message = await game_message.reactions
+                reactions_to_message = game_message.reactions
                 await ctx.send(f"{reactions_to_message}")
             
             if perf_time < timeout_time:
