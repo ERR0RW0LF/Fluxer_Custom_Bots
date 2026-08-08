@@ -88,6 +88,10 @@ class Tic_tac_toe(Cog):
                 reactions_to_message = await game_message.reactions
                 await ctx.send(f"{reactions_to_message}")
             
+            if perf_time < timeout_time:
+                await ctx.reply("Timeout")
+                return
+            
             current_player = (current_player + 1) % 2
             has_winner, winner = self.pattern_check(game_board)
             if has_winner:
