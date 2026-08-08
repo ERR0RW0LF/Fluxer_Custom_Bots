@@ -92,6 +92,7 @@ class Tic_tac_toe(Cog):
                 pprint(game_message.reactions)
                 
                 await sleep(1)
+                perf_time = time.perf_counter()
             
             if perf_time < timeout_time:
                 await ctx.reply("Timeout")
