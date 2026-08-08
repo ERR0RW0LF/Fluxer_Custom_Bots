@@ -1,6 +1,7 @@
 import fluxer
 from fluxer import Cog
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -63,11 +64,34 @@ class Tic_tac_toe(Cog):
         
         game_message = await ctx.reply(embed=game_embed)
         
+        player = [
+            [ctx.author.id, 'x'],
+            [ctx.author.id, 'o']
+        ]
+        current_player = 0
+        
         game_finished = False
         
+        max_time = 60 # in second
+        
         while not(game_finished):
-            for num in game_board:
-                await game_message.add_reaction(num_to_reaction[num])
+            game_finished = True
+            for cell in game_board:
+                if type(cell) == int:
+                    game_finished = False
+                    await game_message.add_reaction(num_to_reaction[cell])
+            
+            # take time for timeout logic
+            perf_time = time.perf_counter()
+            timeout_time = perf_time + max_time
+            while perf_time < timeout_time:
+                reactions_to_message = await game_message.reactions
+                await ctx.send(f"{reactions_to_message}")
+            
+            current_player = (current_player + 1) % 2
+            has_winner, winner = self.pattern_check(game_board)
+            if has_winner:
+                game_finished = True
             break
     
     
