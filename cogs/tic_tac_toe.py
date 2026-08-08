@@ -1,3 +1,5 @@
+import pprint
+
 import fluxer
 from fluxer import Cog
 import logging
@@ -86,7 +88,7 @@ class Tic_tac_toe(Cog):
             timeout_time = perf_time + max_time
             while perf_time < timeout_time:
                 reactions_to_message = game_message.reactions
-                await ctx.send(f"{reactions_to_message}")
+                pprint(reactions_to_message)
             
             if perf_time < timeout_time:
                 await ctx.reply("Timeout")
